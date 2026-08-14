@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "satori"
+version = "0.1.0"
+description = "Manga screenshot OCR + translation CLI"
+requires-python = ">=3.10"
+dependencies = [
+    "manga-ocr",
+    "mss",
+    "keyboard",
+    "pyperclip",
+    "python-dotenv",
+    "Pillow",
+    "deep-translator",
+]
+
+[project.scripts]
+satori = "satori.cli:main"
+
+[tool.setuptools]
+packages = ["satori"]

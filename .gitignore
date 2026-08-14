@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Virtual env
+.venv/
+venv/
+
+# Secrets - never commit API keys
+.env
+
+# Satori runtime
+capture.png
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

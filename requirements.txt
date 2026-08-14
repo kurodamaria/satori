@@ -1,0 +1,7 @@
+manga-ocr
+mss
+keyboard
+pyperclip
+python-dotenv
+Pillow
+deep-translator
