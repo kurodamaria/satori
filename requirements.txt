@@ -5,3 +5,4 @@ pyperclip
 python-dotenv
 Pillow
 deep-translator
+requests
