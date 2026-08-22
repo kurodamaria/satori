@@ -17,6 +17,11 @@ DEFAULTS: dict[str, Any] = {
     "clipboard_copy": True,
     "save_dir": None,
     "region": None,  # {"left": int, "top": int, "width": int, "height": int}
+    "tts": False,  # speak the OCR'd Japanese aloud via VOICEVOX
+    "tts_voice": None,  # VOICEVOX style id or character name
+    "tts_url": "http://127.0.0.1:50021",
+    "llm_url": "http://127.0.0.1:8080",  # OpenAI-compatible endpoint (chat2api)
+    "llm_model": "deepseek-v4-flash",
 }
 
 

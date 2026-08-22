@@ -11,9 +11,13 @@ from PIL import Image
 from . import __version__
 from .capture import capture_screen, crop_lasso, crop_rect, lasso_select
 from .config import load_config, save_config
+from .llm import DEFAULT_LLM_MODEL, DEFAULT_LLM_URL
+from .llm import analyze as llm_analyze
 from .ocr import ocr_image
-from .output import print_ocr, render_result
+from .output import print_ocr, render_analysis, render_result
 from .translate import translate
+from .tts import DEFAULT_URL as TTS_URL
+from .tts import speak
 
 
 def _pipeline(img: Image.Image, cfg: dict, args: argparse.Namespace) -> None:
@@ -27,18 +31,35 @@ def _pipeline(img: Image.Image, cfg: dict, args: argparse.Namespace) -> None:
 
     text = ocr_image(img, threads=args.threads)
 
+    if getattr(args, "tts", False) or cfg.get("tts"):
+        try:
+            speak(text, voice=args.tts_voice or cfg.get("tts_voice"),
+                  url=args.tts_url or cfg.get("tts_url") or TTS_URL)
+        except Exception as exc:
+            print(f"TTS error: {exc}", flush=True)
+
     def _translate() -> str:
         return translate(text, provider=provider, target_lang=target,
                          source_lang=source)
 
-    if args.raw and not args.ocr_only:
+    use_llm = provider == "llm" and not args.ocr_only
+
+    if (args.raw or use_llm) and not args.ocr_only:
         try:
-            translation = _translate()
+            if use_llm:
+                result = llm_analyze(
+                    text, target_lang=target,
+                    base_url=args.llm_url or cfg["llm_url"],
+                    model=args.llm_model or cfg["llm_model"])
+                render_analysis(result, raw=args.raw,
+                                clipboard=args.clipboard)
+            else:
+                translation = _translate()
+                render_result(translation, raw=True, clipboard=args.clipboard)
         except Exception as exc:
-            print(text, flush=True)
+            if not args.raw:
+                print_ocr(text)
             print(f"Error: {exc}", flush=True)
-            return
-        render_result(translation, raw=True, clipboard=args.clipboard)
         return
 
     print_ocr(text, raw=args.raw)
@@ -139,6 +160,21 @@ def cmd_watch(args: argparse.Namespace) -> int:
     return cmd_listen(args)
 
 
+def cmd_voices(args: argparse.Namespace) -> int:
+    from .tts import list_voices
+
+    try:
+        speakers = list_voices()
+    except Exception as exc:
+        print(f"Error: {exc}")
+        return 1
+    for spk in speakers:
+        name = spk["name"]
+        for st in spk["styles"]:
+            print(f"{st['id']:>4}  {name} ({st['name']})")
+    return 0
+
+
 def cmd_config(args: argparse.Namespace) -> int:
     cfg = load_config()
     for key, value in cfg.items():
@@ -157,12 +193,28 @@ def cmd_set(args: argparse.Namespace) -> int:
     if args.target_lang:
         cfg["target_lang"] = args.target_lang
         print(f"Target language set to '{args.target_lang}'")
+    if args.llm_url:
+        cfg["llm_url"] = args.llm_url
+        print(f"LLM endpoint set to '{args.llm_url}'")
+    if args.llm_model:
+        cfg["llm_model"] = args.llm_model
+        print(f"LLM model set to '{args.llm_model}'")
+    if args.tts is not None:
+        enabled = args.tts == "on"
+        cfg["tts"] = enabled
+        print(f"TTS {'enabled' if enabled else 'disabled'}")
+    if args.tts_voice:
+        cfg["tts_voice"] = args.tts_voice
+        print(f"TTS voice set to '{args.tts_voice}'")
+    if args.tts_url:
+        cfg["tts_url"] = args.tts_url
+        print(f"TTS engine URL set to '{args.tts_url}'")
     save_config(cfg)
     return 0
 
 
 def _add_common(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--provider", choices=["deepl", "google"])
+    parser.add_argument("--provider", choices=["deepl", "google", "llm"])
     parser.add_argument("--target-lang", default=None)
     parser.add_argument("--source-lang", default=None)
     parser.add_argument("--raw", action="store_true",
@@ -177,6 +229,19 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
                         help="torch CPU threads (try --threads 8 if OCR stalls)")
     parser.add_argument("--verbose", action="store_true",
                         help="print diagnostics while listening")
+    parser.add_argument("--tts", action="store_true",
+                        help="speak the OCR'd Japanese aloud (VOICEVOX)")
+    parser.add_argument("--tts-voice", default=None,
+                        help="VOICEVOX style id or character name "
+                             "(e.g. 'ずんだもん'); list with `satori voices`")
+    parser.add_argument("--tts-url", default=None,
+                        help=f"VOICEVOX engine URL (default: {TTS_URL})")
+    parser.add_argument("--llm-url", default=None,
+                        help=f"OpenAI-compatible endpoint "
+                             f"(default: {DEFAULT_LLM_URL})")
+    parser.add_argument("--llm-model", default=None,
+                        help=f"model name for --provider llm "
+                             f"(default: {DEFAULT_LLM_MODEL})")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -234,10 +299,23 @@ def build_parser() -> argparse.ArgumentParser:
     p_config = sub.add_parser("config", help="show current configuration")
     p_config.set_defaults(func=cmd_config)
 
+    p_voices = sub.add_parser("voices", help="list available VOICEVOX voices")
+    p_voices.set_defaults(func=cmd_voices)
+
     p_set = sub.add_parser("set", help="change configuration values")
     p_set.add_argument("--hotkey", default=None)
-    p_set.add_argument("--provider", choices=["deepl", "google"], default=None)
+    p_set.add_argument("--provider", choices=["deepl", "google", "llm"],
+                       default=None)
     p_set.add_argument("--target-lang", default=None)
+    p_set.add_argument("--tts", choices=["on", "off"], default=None)
+    p_set.add_argument("--tts-voice", default=None)
+    p_set.add_argument("--tts-url", default=None)
+    p_set.add_argument("--llm-url", default=None,
+                       help=f"OpenAI-compatible endpoint "
+                            f"(default: {DEFAULT_LLM_URL})")
+    p_set.add_argument("--llm-model", default=None,
+                       help=f"model name for --provider llm "
+                            f"(default: {DEFAULT_LLM_MODEL})")
     p_set.set_defaults(func=cmd_set)
 
     return parser
