@@ -69,8 +69,8 @@ def resolve_voice_id(spec: Optional[str | int], url: str = DEFAULT_URL) -> int:
 def synthesize(text: str, voice_id: int, url: str = DEFAULT_URL) -> bytes:
     """Return the synthesized WAV bytes for `text` using the given style id."""
     query = requests.post(f"{url}/audio_query",
-                          params={"speaker": voice_id},
-                          data=text.encode("utf-8"), timeout=30)
+                          params={"text": text, "speaker": voice_id},
+                          timeout=30)
     query.raise_for_status()
     wav = requests.post(f"{url}/synthesis",
                         params={"speaker": voice_id},
@@ -92,11 +92,17 @@ def speak(text: str, voice: Optional[str | int] = None,
         return
     if sys.platform != "win32":
         return
+    import os
+    import tempfile
     import winsound
 
     voice_id = resolve_voice_id(voice, url)
     audio = synthesize(text, voice_id, url)
-    flags = winsound.SND_MEMORY
+    # winsound cannot play asynchronously from memory; write to a file.
+    wav_path = os.path.join(tempfile.gettempdir(), "satori_tts.wav")
+    with open(wav_path, "wb") as f:
+        f.write(audio)
+    flags = winsound.SND_FILENAME
     if not blocking:
         flags |= winsound.SND_ASYNC
-    winsound.PlaySound(audio, flags)
+    winsound.PlaySound(wav_path, flags)
